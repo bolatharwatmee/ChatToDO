@@ -45,9 +45,36 @@ export async function start(handler) {
 
   sock.ev.on('creds.update', saveCreds);
 
+  // --- Phone-number pairing code (no QR / no camera needed) ---
+  if (config.pairingNumber && !sock.authState.creds.registered) {
+    let tries = 0;
+    const requestPairing = async () => {
+      if (sock.authState.creds.registered) return;
+      try {
+        const code = await sock.requestPairingCode(config.pairingNumber);
+        // Easy-to-grep marker so we can relay the code from CI logs.
+        console.log(`PAIRING_CODE=${code}  (generated ${new Date().toISOString()})`);
+        console.log('🔗 On your phone: WhatsApp → Settings → Linked devices → Link a device →');
+        console.log('   "Link with phone number instead" → enter the code above.');
+      } catch (e) {
+        console.error('Pairing code request failed:', e?.message || e);
+      }
+    };
+    setTimeout(requestPairing, 4000);
+    // Re-issue a fresh code every 2 min until linked (codes expire quickly).
+    const iv = setInterval(() => {
+      if (sock.authState.creds.registered || tries >= 15) {
+        clearInterval(iv);
+        return;
+      }
+      tries += 1;
+      requestPairing();
+    }, 120000);
+  }
+
   sock.ev.on('connection.update', (update) => {
     const { connection, lastDisconnect, qr } = update;
-    if (qr) {
+    if (qr && !config.pairingNumber) {
       console.log('\n📱  Scan this QR code with WhatsApp (Settings → Linked devices → Link a device):\n');
       qrcode.generate(qr, { small: true });
     }

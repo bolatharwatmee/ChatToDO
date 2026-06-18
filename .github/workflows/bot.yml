@@ -1,0 +1,64 @@
+name: ChatToDO bot
+
+# Runs the WhatsApp bot on a GitHub Actions runner (which has open internet,
+# unlike sandboxed dev environments). Link once with a phone pairing code; the
+# WhatsApp session is cached so later runs reconnect without re-linking.
+#
+# NOTE: a single run lasts at most ~6 hours (GitHub's job limit). For true 24/7
+# uptime, host it on an always-on machine/VPS (see README). This workflow is the
+# zero-setup way to get it talking to WhatsApp from your phone alone.
+
+on:
+  workflow_dispatch:
+    inputs:
+      phone:
+        description: "Your WhatsApp number, digits only incl. country code (e.g. 201273533815)"
+        required: true
+      minutes:
+        description: "How long to keep the bot running (max 350)"
+        required: false
+        default: "350"
+
+concurrency:
+  group: chattodo-bot
+  cancel-in-progress: true
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 358
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Restore WhatsApp session
+        uses: actions/cache/restore@v4
+        with:
+          path: data
+          key: chattodo-auth-${{ github.run_id }}
+          restore-keys: |
+            chattodo-auth-
+
+      - name: Install dependencies
+        run: npm ci || npm install
+
+      - name: Run bot
+        env:
+          OWNER_NUMBER: ${{ inputs.phone }}
+          PAIRING_NUMBER: ${{ inputs.phone }}
+          TZ: Africa/Cairo
+          DEFAULT_REMINDER_TIME: "09:00"
+          # Optional: add a repo secret named GROQ_API_KEY to enable voice notes.
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: |
+          timeout ${{ inputs.minutes }}m node src/index.js || true
+
+      - name: Save WhatsApp session
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: data
+          key: chattodo-auth-${{ github.run_id }}

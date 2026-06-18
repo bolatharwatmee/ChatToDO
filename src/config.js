@@ -39,6 +39,8 @@ process.env.TZ = tz; // make Date() use this timezone
 
 export const config = {
   ownerNumber: normalizeNumber(process.env.OWNER_NUMBER),
+  // If set, link via an 8-char pairing code (entered on the phone) instead of QR.
+  pairingNumber: normalizeNumber(process.env.PAIRING_NUMBER),
   timezone: tz,
   defaultReminderTime: process.env.DEFAULT_REMINDER_TIME || '09:00',
   transcription: {
