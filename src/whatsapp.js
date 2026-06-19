@@ -77,9 +77,21 @@ function jidNumber(jid = '') {
   return normalizeNumber(jid.split('@')[0].split(':')[0]);
 }
 
-function isOwner(jid) {
-  if (!config.ownerNumber) return true; // no owner set -> allow anyone (not recommended)
-  return jidNumber(jid) === config.ownerNumber;
+// Every identifier that means "me" (the linked account): the configured owner
+// number, plus this account's phone JID and its LID. Baileys v7 addresses the
+// "message yourself" chat by @lid, so we must match that too.
+function ownNumbers() {
+  const me = sock?.authState?.creds?.me || {};
+  const s = new Set();
+  if (config.ownerNumber) s.add(config.ownerNumber);
+  if (me.id) s.add(jidNumber(me.id));
+  if (me.lid) s.add(jidNumber(me.lid));
+  return s;
+}
+
+function isSelfChat(jid) {
+  if (!config.ownerNumber && ownNumbers().size === 0) return true; // no owner set
+  return ownNumbers().has(jidNumber(jid));
 }
 
 export async function start(handler) {
@@ -165,10 +177,9 @@ async function handleIncoming(msg, type = 'notify') {
   // messages are fromMe===true and the chat jid is your own number. Only act
   // there; ignore your outgoing messages to other people and other people's
   // messages to you.
-  const selfChat = isOwner(jid);
-  console.log(`[incoming] selfChat=${selfChat} fromMe=${msg.key.fromMe} jid=${jid}`);
-  if (msg.key.fromMe && !selfChat) return;
-  if (!selfChat) return;
+  const selfChat = isSelfChat(jid);
+  if (msg.key.fromMe && !selfChat) return; // your outgoing messages to others
+  if (!selfChat) return;                   // someone else's chat
 
   const m = msg.message;
   const text =
