@@ -1,6 +1,7 @@
 // WhatsApp connection via Baileys (WhatsApp Web multi-device).
 // Free, no Meta business account needed — you just scan a QR code once.
 import path from 'node:path';
+import fs from 'node:fs';
 import makeWASocket, {
   useMultiFileAuthState,
   DisconnectReason,
@@ -13,9 +14,46 @@ import pino from 'pino';
 import { DATA_DIR, config, normalizeNumber } from './config.js';
 
 const logger = pino({ level: 'silent' });
+const AUTH_DIR = path.join(DATA_DIR, 'auth');
 let sock = null;
 let onMessage = null;
-let pairingDone = false; // request a pairing code only ONCE per process
+let reconnecting = false;
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function wipeAuth() {
+  try { fs.rmSync(AUTH_DIR, { recursive: true, force: true }); } catch {}
+}
+
+// Request a pairing code for the current (not-yet-linked) session. The code is
+// valid for ~2.5 min; if it expires unused, the connection drops and we simply
+// reconnect and ask for a fresh one (see the close handler) — so the user always
+// has a working code without anyone restarting anything.
+async function requestPairing() {
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    if (!sock || sock.authState.creds.registered) return;
+    try {
+      const code = await sock.requestPairingCode(config.pairingNumber);
+      console.log(`PAIRING_CODE=${code}`); // grep marker for the CI relay
+      console.log('🔗 WhatsApp → Settings → Linked devices → Link a device →');
+      console.log('   "Link with phone number instead" → enter the code above.');
+      return;
+    } catch (e) {
+      console.error(`Pairing request failed (attempt ${attempt}):`, e?.message || e);
+      await sleep(4000);
+    }
+  }
+}
+
+function scheduleRestart(handler, wipe) {
+  if (reconnecting) return;
+  reconnecting = true;
+  setTimeout(() => {
+    if (wipe) wipeAuth();
+    reconnecting = false;
+    start(handler).catch((e) => console.error('Reconnect failed:', e?.message || e));
+  }, 2500);
+}
 
 // Track IDs of messages the bot itself sent, so its own replies (which also
 // come back flagged fromMe in the self-chat) don't get re-processed in a loop.
@@ -57,27 +95,9 @@ export async function start(handler) {
 
   sock.ev.on('creds.update', saveCreds);
 
-  // --- Phone-number pairing code (no QR / no camera needed) ---
-  // Request the code ONCE and keep it stable. Re-requesting (or doing so again
-  // on reconnect) invalidates the previous code, which breaks the user mid-entry.
-  if (config.pairingNumber && !sock.authState.creds.registered && !pairingDone) {
-    pairingDone = true;
-    setTimeout(async () => {
-      for (let attempt = 1; attempt <= 4; attempt++) {
-        if (sock.authState.creds.registered) return;
-        try {
-          const code = await sock.requestPairingCode(config.pairingNumber);
-          // Easy-to-grep marker so we can relay the code from CI logs.
-          console.log(`PAIRING_CODE=${code}`);
-          console.log('🔗 On your phone: WhatsApp → Settings → Linked devices → Link a device →');
-          console.log('   "Link with phone number instead" → enter the code above.');
-          return;
-        } catch (e) {
-          console.error(`Pairing attempt ${attempt} failed:`, e?.message || e);
-          await new Promise((r) => setTimeout(r, 5000));
-        }
-      }
-    }, 4000);
+  // Phone-number pairing (no QR / no camera): ask for a code once per session.
+  if (config.pairingNumber && !sock.authState.creds.registered) {
+    setTimeout(() => requestPairing(), 4000);
   }
 
   sock.ev.on('connection.update', (update) => {
@@ -91,10 +111,24 @@ export async function start(handler) {
     }
     if (connection === 'close') {
       const code = new Boom(lastDisconnect?.error)?.output?.statusCode;
+      const registered = sock?.authState?.creds?.registered;
       const loggedOut = code === DisconnectReason.loggedOut;
-      console.log(`⚠️  Connection closed (code ${code}).` + (loggedOut ? ' Logged out.' : ' Reconnecting…'));
-      if (!loggedOut) start(handler).catch((e) => console.error('Reconnect failed:', e));
-      else console.log('   Delete the data/auth folder and restart to re-link.');
+      if (code === DisconnectReason.restartRequired) {
+        // Normal step right after a successful link — reconnect, keep session.
+        console.log('🔄  Pairing accepted — finishing login…');
+        scheduleRestart(handler, false);
+      } else if (!registered) {
+        // Pairing window expired or was rejected before linking finished.
+        // Clear the half-paired state and reconnect to issue a fresh code.
+        console.log(`↻  Pairing not completed (code ${code}). Issuing a fresh code…`);
+        scheduleRestart(handler, true);
+      } else if (loggedOut) {
+        console.log('⚠️  Logged out by WhatsApp. Clearing session to re-link.');
+        scheduleRestart(handler, true);
+      } else {
+        console.log(`↻  Connection closed (code ${code}). Reconnecting…`);
+        scheduleRestart(handler, false);
+      }
     }
   });
 
