@@ -16,9 +16,20 @@ const logger = pino({ level: 'silent' });
 let sock = null;
 let onMessage = null;
 
+// Track IDs of messages the bot itself sent, so its own replies (which also
+// come back flagged fromMe in the self-chat) don't get re-processed in a loop.
+const sentIds = new Set();
+function rememberSent(id) {
+  if (!id) return;
+  sentIds.add(id);
+  if (sentIds.size > 300) sentIds.delete(sentIds.values().next().value);
+}
+
 export async function sendText(jid, text) {
   if (!sock) throw new Error('WhatsApp socket not ready');
-  await sock.sendMessage(jid, { text });
+  const res = await sock.sendMessage(jid, { text });
+  rememberSent(res?.key?.id);
+  return res;
 }
 
 function jidNumber(jid = '') {
@@ -105,10 +116,20 @@ export async function start(handler) {
 }
 
 async function handleIncoming(msg) {
-  if (!msg.message || msg.key.fromMe) return;
+  if (!msg.message) return;
   const jid = msg.key.remoteJid || '';
-  if (jid === 'status@broadcast' || jid.endsWith('@g.us')) return; // ignore status & groups
-  if (!isOwner(jid)) return;
+  if (jid === 'status@broadcast' || jid.endsWith('@g.us') || jid.endsWith('@broadcast')) return;
+
+  // Don't react to the bot's own replies echoing back.
+  if (msg.key.id && sentIds.has(msg.key.id)) return;
+
+  // Personal bot: you talk to it in your "message yourself" chat, where your
+  // messages are fromMe===true and the chat jid is your own number. Only act
+  // there; ignore your outgoing messages to other people and other people's
+  // messages to you.
+  const selfChat = isOwner(jid);
+  if (msg.key.fromMe && !selfChat) return;
+  if (!selfChat) return;
 
   const m = msg.message;
   const text =
