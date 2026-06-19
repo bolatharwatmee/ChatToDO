@@ -92,8 +92,8 @@ nano .env
 In the editor, set these two lines to **your** number (digits only, with country
 code), then save with **Ctrl+O, Enter, Ctrl+X**:
 ```
-OWNER_NUMBER=201273533815
-PAIRING_NUMBER=201273533815
+OWNER_NUMBER=<your number, digits only>
+PAIRING_NUMBER=<your number, digits only>
 TZ=Africa/Cairo
 ```
 

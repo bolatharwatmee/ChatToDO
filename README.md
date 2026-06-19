@@ -43,7 +43,7 @@ cp .env.example .env
 ```
 Open `.env` and set at least your number (already pre-filled as an example):
 ```
-OWNER_NUMBER=201273533815      # international format, digits only
+OWNER_NUMBER=                   # your number, international format, digits only
 TZ=Africa/Cairo                # your timezone
 ```
 > The bot only listens/replies to `OWNER_NUMBER`, so nobody else can use it.
