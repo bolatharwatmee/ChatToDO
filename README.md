@@ -123,7 +123,8 @@ The bot must stay running to send reminders. Some free options:
   pm2 start src/index.js --name chattodo
   pm2 save && pm2 startup
   ```
-- **A free/cheap VPS** (e.g. Oracle Cloud Always Free) — same pm2 steps.
+- **A free/cheap VPS** (e.g. Oracle Cloud Always Free) — **see the step-by-step,
+  phone-friendly [DEPLOY.md](./DEPLOY.md)** for running it 24/7 for free.
 - Keep the `data/` folder — it holds your WhatsApp login (`data/auth`) and your
   tasks (`data/tasks.json`). Back it up; never commit it (it's gitignored).
 

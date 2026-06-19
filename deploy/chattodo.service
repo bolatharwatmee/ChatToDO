@@ -1,0 +1,22 @@
+# systemd service (alternative to pm2) to run ChatToDO 24/7.
+# 1. Edit the paths/user below to match your server.
+# 2. sudo cp deploy/chattodo.service /etc/systemd/system/chattodo.service
+# 3. sudo systemctl daemon-reload && sudo systemctl enable --now chattodo
+# 4. journalctl -u chattodo -f      # view logs (and the pairing code on first run)
+
+[Unit]
+Description=ChatToDO WhatsApp reminder bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/ChatToDO
+ExecStart=/usr/bin/node src/index.js
+Restart=always
+RestartSec=5
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target
