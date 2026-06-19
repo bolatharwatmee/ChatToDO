@@ -1,35 +1,26 @@
 name: ChatToDO bot
 
-# Runs the WhatsApp bot on a GitHub Actions runner (which has open internet,
-# unlike sandboxed dev environments). Link once with a phone pairing code; the
-# WhatsApp session is cached so later runs reconnect without re-linking.
-#
-# NOTE: a single run lasts at most ~6 hours (GitHub's job limit). For true 24/7
-# uptime, host it on an always-on machine/VPS (see README). This workflow is the
-# zero-setup way to get it talking to WhatsApp from your phone alone.
+# Runs the Telegram bot on a GitHub Actions runner (free, open internet).
+# A run lasts up to ~6 hours; the schedule below relaunches it so it stays
+# near-24/7. Telegram queues messages during the brief restart gap, and the
+# bot fires any reminders that came due while it was restarting.
 
 on:
   workflow_dispatch:
-    inputs:
-      phone:
-        description: "Your WhatsApp number, digits only incl. country code (e.g. 201273533815)"
-        required: true
-      minutes:
-        description: "How long to keep the bot running (max 350)"
-        required: false
-        default: "350"
+  schedule:
+    - cron: "0 */5 * * *" # relaunch roughly every 5 hours
 
 concurrency:
   group: chattodo-bot
   cancel-in-progress: true
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 358
+    timeout-minutes: 350
     steps:
       - uses: actions/checkout@v4
 
@@ -37,71 +28,30 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Restore WhatsApp session
+      - name: Restore saved tasks
         uses: actions/cache/restore@v4
         with:
           path: data
-          key: chattodo-v3-auth-${{ github.run_id }}
+          key: chattodo-data-${{ github.run_id }}
           restore-keys: |
-            chattodo-v3-auth-
+            chattodo-data-
 
       - name: Install dependencies
         run: npm ci || npm install
 
       - name: Run bot
         env:
-          OWNER_NUMBER: ${{ inputs.phone }}
-          PAIRING_NUMBER: ${{ inputs.phone }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_OWNER_ID: ${{ secrets.TELEGRAM_OWNER_ID }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           TZ: Africa/Cairo
           DEFAULT_REMINDER_TIME: "09:00"
-          # Optional: add a repo secret named GROQ_API_KEY to enable voice notes.
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-        run: |
-          set +e
-          : > /tmp/bot.log
+        # Exit a bit before the job timeout so the save step below always runs.
+        run: timeout 345m node src/index.js || true
 
-          # Publisher: mirror the pairing code (and link status) to the
-          # "bot-link" branch so it can be read live while the bot keeps running.
-          git config user.email "bot@users.noreply.github.com"
-          git config user.name "ChatToDO bot"
-          (
-            published=""
-            for i in $(seq 1 360); do
-              if grep -q 'ChatToDO is live' /tmp/bot.log; then
-                msg="STATUS=LINKED"
-                touch /tmp/linked.flag
-              else
-                code=$(grep -ao 'PAIRING_CODE=[A-Z0-9-]\+' /tmp/bot.log | tail -1 | cut -d= -f2)
-                [ -z "$code" ] && { sleep 5; continue; }
-                msg="PAIRING_CODE=$code"
-              fi
-              if [ "$msg" != "$published" ]; then
-                published="$msg"
-                printf '%s\n' "$msg" > LINK_CODE.txt
-                git add LINK_CODE.txt
-                git commit -q -m "link status" >/dev/null 2>&1
-                git push -f -q origin HEAD:bot-link >/dev/null 2>&1
-              fi
-              echo "$msg" | grep -q LINKED && break
-              sleep 5
-            done
-          ) &
-
-          timeout ${{ inputs.minutes }}m node src/index.js 2>&1 | tee /tmp/bot.log
-          true
-
-      # Only persist the session once we've actually linked, so an unlinked /
-      # half-paired state never poisons the cache for the next run.
-      - name: Did we link?
-        id: linkcheck
+      - name: Save tasks
         if: always()
-        run: |
-          if [ -f /tmp/linked.flag ]; then echo "linked=true" >> "$GITHUB_OUTPUT";
-          else echo "linked=false" >> "$GITHUB_OUTPUT"; fi
-
-      - name: Save WhatsApp session
-        if: always() && steps.linkcheck.outputs.linked == 'true'
         uses: actions/cache/save@v4
         with:
           path: data
-          key: chattodo-v3-auth-${{ github.run_id }}
+          key: chattodo-data-${{ github.run_id }}

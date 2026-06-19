@@ -1,12 +1,15 @@
 // ChatToDO — entry point.
-// Wires WhatsApp <-> intent handler <-> reminder scheduler.
+// Wires the messaging platform <-> intent handler <-> reminder scheduler.
 import { config } from './config.js';
-import { start, sendText } from './whatsapp.js';
 import { initScheduler } from './scheduler.js';
 import { handleText } from './handler.js';
 import { transcribe, transcriptionEnabled } from './transcribe.js';
 import { detectLang, t } from './strings.js';
 import { llmAvailable } from './llm.js';
+
+// Pick the messaging layer: Telegram if a bot token is set, else WhatsApp.
+const usingTelegram = !!process.env.TELEGRAM_BOT_TOKEN;
+const { start, sendText } = await import(usingTelegram ? './telegram.js' : './whatsapp.js');
 
 async function processMessage({ jid, text, audio }) {
   let userText = text;
@@ -45,8 +48,8 @@ async function processMessage({ jid, text, audio }) {
 
 async function main() {
   console.log('🚀  Starting ChatToDO…');
+  console.log(`    Platform: ${usingTelegram ? 'Telegram' : 'WhatsApp'}`);
   console.log(`    Timezone: ${config.timezone}`);
-  console.log(`    Owner number: ${config.ownerNumber || '(anyone — set OWNER_NUMBER!)'}`);
   console.log(`    Voice transcription: ${transcriptionEnabled() ? config.transcription.provider : 'off'}`);
   console.log(`    Bilingual understanding (LLM): ${llmAvailable() ? 'on' : 'off (rule-based)'}`);
 
