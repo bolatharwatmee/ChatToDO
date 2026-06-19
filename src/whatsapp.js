@@ -16,6 +16,7 @@ import { DATA_DIR, config, normalizeNumber } from './config.js';
 
 const logger = pino({ level: 'silent' });
 const AUTH_DIR = path.join(DATA_DIR, 'auth');
+const START_TS = Math.floor(Date.now() / 1000); // ignore messages older than startup
 let sock = null;
 let onMessage = null;
 let reconnecting = false;
@@ -134,10 +135,11 @@ export async function start(handler) {
   });
 
   sock.ev.on('messages.upsert', async ({ messages, type }) => {
-    if (type !== 'notify') return;
     for (const msg of messages) {
       try {
-        await handleIncoming(msg);
+        const k = msg.key || {};
+        console.log(`[upsert] type=${type} fromMe=${k.fromMe} jid=${k.remoteJid} ts=${msg.messageTimestamp} hasMsg=${!!msg.message}`);
+        await handleIncoming(msg, type);
       } catch (err) {
         console.error('Error handling message:', err?.message || err);
       }
@@ -147,8 +149,12 @@ export async function start(handler) {
   return sock;
 }
 
-async function handleIncoming(msg) {
+async function handleIncoming(msg, type = 'notify') {
   if (!msg.message) return;
+  // Ignore old/history messages (some arrive as type 'append' on startup).
+  const ts = Number(msg.messageTimestamp || 0);
+  if (ts && ts < START_TS - 5) return;
+
   const jid = msg.key.remoteJid || '';
   if (jid === 'status@broadcast' || jid.endsWith('@g.us') || jid.endsWith('@broadcast')) return;
 
@@ -160,6 +166,7 @@ async function handleIncoming(msg) {
   // there; ignore your outgoing messages to other people and other people's
   // messages to you.
   const selfChat = isOwner(jid);
+  console.log(`[incoming] selfChat=${selfChat} fromMe=${msg.key.fromMe} jid=${jid}`);
   if (msg.key.fromMe && !selfChat) return;
   if (!selfChat) return;
 
@@ -183,6 +190,7 @@ async function handleIncoming(msg) {
 
   if (!text && !audio) return; // nothing actionable
 
+  console.log(`[handle] dispatching to handler: text="${text}" audio=${!!audio}`);
   await sock.readMessages([msg.key]).catch(() => {});
   await onMessage({ jid, text: text.trim(), audio });
 }
