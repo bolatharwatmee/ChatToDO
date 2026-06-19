@@ -23,6 +23,9 @@ concurrency:
   group: chattodo-bot
   cancel-in-progress: true
 
+permissions:
+  contents: write
+
 jobs:
   run:
     runs-on: ubuntu-latest
@@ -54,7 +57,37 @@ jobs:
           # Optional: add a repo secret named GROQ_API_KEY to enable voice notes.
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: |
-          timeout ${{ inputs.minutes }}m node src/index.js || true
+          set +e
+          : > /tmp/bot.log
+
+          # Publisher: mirror the pairing code (and link status) to the
+          # "bot-link" branch so it can be read live while the bot keeps running.
+          git config user.email "bot@users.noreply.github.com"
+          git config user.name "ChatToDO bot"
+          (
+            published=""
+            for i in $(seq 1 240); do
+              if grep -q 'ChatToDO is live' /tmp/bot.log; then
+                msg="STATUS=LINKED ✅  $(date -u +%FT%TZ)"
+              else
+                code=$(grep -ao 'PAIRING_CODE=[A-Z0-9-]\+' /tmp/bot.log | tail -1 | cut -d= -f2)
+                [ -z "$code" ] && { sleep 5; continue; }
+                msg="PAIRING_CODE=$code  $(date -u +%FT%TZ)"
+              fi
+              if [ "$msg" != "$published" ]; then
+                published="$msg"
+                printf '%s\n' "$msg" > LINK_CODE.txt
+                git add LINK_CODE.txt
+                git commit -q -m "link status" >/dev/null 2>&1
+                git push -f -q origin HEAD:bot-link >/dev/null 2>&1
+              fi
+              echo "$msg" | grep -q LINKED && break
+              sleep 5
+            done
+          ) &
+
+          timeout ${{ inputs.minutes }}m node src/index.js 2>&1 | tee /tmp/bot.log
+          true
 
       - name: Save WhatsApp session
         if: always()
