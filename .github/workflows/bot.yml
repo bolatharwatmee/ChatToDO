@@ -66,13 +66,13 @@ jobs:
           git config user.name "ChatToDO bot"
           (
             published=""
-            for i in $(seq 1 240); do
+            for i in $(seq 1 360); do
               if grep -q 'ChatToDO is live' /tmp/bot.log; then
-                msg="STATUS=LINKED ✅  $(date -u +%FT%TZ)"
+                msg="STATUS=LINKED"
               else
                 code=$(grep -ao 'PAIRING_CODE=[A-Z0-9-]\+' /tmp/bot.log | tail -1 | cut -d= -f2)
                 [ -z "$code" ] && { sleep 5; continue; }
-                msg="PAIRING_CODE=$code  $(date -u +%FT%TZ)"
+                msg="PAIRING_CODE=$code"
               fi
               if [ "$msg" != "$published" ]; then
                 published="$msg"

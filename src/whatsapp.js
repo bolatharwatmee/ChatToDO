@@ -15,6 +15,7 @@ import { DATA_DIR, config, normalizeNumber } from './config.js';
 const logger = pino({ level: 'silent' });
 let sock = null;
 let onMessage = null;
+let pairingDone = false; // request a pairing code only ONCE per process
 
 // Track IDs of messages the bot itself sent, so its own replies (which also
 // come back flagged fromMe in the self-chat) don't get re-processed in a loop.
@@ -57,30 +58,26 @@ export async function start(handler) {
   sock.ev.on('creds.update', saveCreds);
 
   // --- Phone-number pairing code (no QR / no camera needed) ---
-  if (config.pairingNumber && !sock.authState.creds.registered) {
-    let tries = 0;
-    const requestPairing = async () => {
-      if (sock.authState.creds.registered) return;
-      try {
-        const code = await sock.requestPairingCode(config.pairingNumber);
-        // Easy-to-grep marker so we can relay the code from CI logs.
-        console.log(`PAIRING_CODE=${code}  (generated ${new Date().toISOString()})`);
-        console.log('🔗 On your phone: WhatsApp → Settings → Linked devices → Link a device →');
-        console.log('   "Link with phone number instead" → enter the code above.');
-      } catch (e) {
-        console.error('Pairing code request failed:', e?.message || e);
+  // Request the code ONCE and keep it stable. Re-requesting (or doing so again
+  // on reconnect) invalidates the previous code, which breaks the user mid-entry.
+  if (config.pairingNumber && !sock.authState.creds.registered && !pairingDone) {
+    pairingDone = true;
+    setTimeout(async () => {
+      for (let attempt = 1; attempt <= 4; attempt++) {
+        if (sock.authState.creds.registered) return;
+        try {
+          const code = await sock.requestPairingCode(config.pairingNumber);
+          // Easy-to-grep marker so we can relay the code from CI logs.
+          console.log(`PAIRING_CODE=${code}`);
+          console.log('🔗 On your phone: WhatsApp → Settings → Linked devices → Link a device →');
+          console.log('   "Link with phone number instead" → enter the code above.');
+          return;
+        } catch (e) {
+          console.error(`Pairing attempt ${attempt} failed:`, e?.message || e);
+          await new Promise((r) => setTimeout(r, 5000));
+        }
       }
-    };
-    setTimeout(requestPairing, 4000);
-    // Re-issue a fresh code every 2 min until linked (codes expire quickly).
-    const iv = setInterval(() => {
-      if (sock.authState.creds.registered || tries >= 15) {
-        clearInterval(iv);
-        return;
-      }
-      tries += 1;
-      requestPairing();
-    }, 120000);
+    }, 4000);
   }
 
   sock.ev.on('connection.update', (update) => {
