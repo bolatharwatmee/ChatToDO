@@ -42,7 +42,7 @@ function write(db) {
  * }
  */
 
-export function addTask({ jid, text, dueAt = null, remindAt = null }) {
+export function addTask({ jid, text, dueAt = null, remindAt = null, lang = 'en' }) {
   const db = read();
   db.seq += 1;
   const task = {
@@ -51,6 +51,7 @@ export function addTask({ jid, text, dueAt = null, remindAt = null }) {
     text,
     dueAt,
     remindAt,
+    lang,
     reminded: false,
     done: false,
     createdAt: Date.now(),

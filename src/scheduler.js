@@ -3,6 +3,7 @@
 import schedule from 'node-schedule';
 import { getTask, updateTask, futureReminders, pendingReminders } from './store.js';
 import { formatWhen } from './format.js';
+import { t } from './strings.js';
 
 const jobs = new Map(); // taskId -> node-schedule Job
 let sendFn = null;
@@ -47,7 +48,8 @@ async function fire(id) {
   }
   updateTask(id, { reminded: true });
   cancelTask(id);
-  const msg = `⏰ *Reminder:* ${task.text}\n_(${formatWhen(task.remindAt)})_\n\nReply *done ${task.id}* when finished.`;
+  const lang = task.lang || 'en';
+  const msg = t(lang).reminder(task.text, formatWhen(task.remindAt, lang), task.id);
   try {
     if (sendFn) await sendFn(task.jid, msg);
   } catch (err) {

@@ -1,4 +1,4 @@
-// Human-friendly formatting of dates and task lists.
+// Human-friendly formatting of dates and task lists (English + Arabic).
 import { config } from './config.js';
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -14,68 +14,49 @@ export function todayRange(now = new Date()) {
   return { from, to: from + DAY };
 }
 
-// "This week" = from now until end of the 7th day ahead (rolling week).
+// "This week" = from the start of today until 7 days ahead (rolling week).
 export function weekRange(now = new Date()) {
   const from = startOfToday(now);
   return { from, to: from + 7 * DAY };
 }
 
-export function formatWhen(ts) {
+export function formatWhen(ts, lang = 'en') {
   if (!ts) return '';
+  const ar = lang === 'ar';
+  const locale = ar ? 'ar-EG' : 'en-US';
   const d = new Date(ts);
-  const now = new Date();
-  const today = startOfToday(now);
+  const today = startOfToday(new Date());
   const dayDiff = Math.round((startOfToday(d) - today) / DAY);
 
-  const time = d.toLocaleTimeString('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-    timeZone: config.timezone,
+  const time = d.toLocaleTimeString(locale, {
+    hour: 'numeric', minute: '2-digit', timeZone: config.timezone,
   });
 
   let day;
-  if (dayDiff === 0) day = 'today';
-  else if (dayDiff === 1) day = 'tomorrow';
-  else if (dayDiff === -1) day = 'yesterday';
+  if (dayDiff === 0) day = ar ? 'النهاردة' : 'today';
+  else if (dayDiff === 1) day = ar ? 'بكرة' : 'tomorrow';
+  else if (dayDiff === -1) day = ar ? 'امبارح' : 'yesterday';
   else if (dayDiff > 1 && dayDiff < 7) {
-    day = d.toLocaleDateString('en-US', { weekday: 'long', timeZone: config.timezone });
+    day = d.toLocaleDateString(locale, { weekday: 'long', timeZone: config.timezone });
   } else {
-    day = d.toLocaleDateString('en-US', {
+    day = d.toLocaleDateString(locale, {
       weekday: 'short', month: 'short', day: 'numeric', timeZone: config.timezone,
     });
   }
-  return `${day} at ${time}`;
+  const at = ar ? 'الساعة' : 'at';
+  return `${day} ${at} ${time}`;
 }
 
-export function formatTask(t) {
-  const when = t.dueAt ? ` — ${formatWhen(t.dueAt)}` : '';
+export function formatTask(t, lang = 'en') {
+  const when = t.dueAt ? ` — ${formatWhen(t.dueAt, lang)}` : '';
   return `#${t.id} ${t.text}${when}`;
 }
 
-export function formatList(tasks, title) {
+export function formatList(tasks, title, lang = 'en') {
   if (!tasks.length) {
-    return `${title}\n\n  Nothing here yet. 🎉`;
+    const empty = lang === 'ar' ? 'مفيش حاجة هنا 🎉' : 'Nothing here yet. 🎉';
+    return `${title}\n\n  ${empty}`;
   }
-  const lines = tasks.map((t) => `  • ${formatTask(t)}`);
+  const lines = tasks.map((t) => `  • ${formatTask(t, lang)}`);
   return `${title}\n\n${lines.join('\n')}`;
 }
-
-export const HELP_TEXT = `🤖 *ChatToDO* — your WhatsApp to-do & reminder bot
-
-You can talk to me by *text* or *voice note*. Here's what I understand:
-
-*Add / remind*
-  • _remind me to call mom tomorrow at 6pm_
-  • _take medicine every... (set a time)_  →  _gym today at 7pm_
-  • _buy milk_  (no time = just saved to your list)
-
-*Ask what's on your list*
-  • _what do I have today?_
-  • _what's on this week?_
-  • _list_  (everything)
-
-*Update*
-  • _done 3_   (mark task #3 finished)
-  • _delete 3_ (remove task #3)
-
-Tip: I'll send you a message exactly when a reminder is due. ⏰`;
