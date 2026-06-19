@@ -7,6 +7,7 @@ import makeWASocket, {
   DisconnectReason,
   fetchLatestBaileysVersion,
   downloadMediaMessage,
+  Browsers,
 } from 'baileys';
 import { Boom } from '@hapi/boom';
 import qrcode from 'qrcode-terminal';
@@ -89,7 +90,7 @@ export async function start(handler) {
     version,
     auth: state,
     logger,
-    browser: ['ChatToDO', 'Chrome', '1.0.0'],
+    browser: Browsers.ubuntu('Chrome'),
     markOnlineOnConnect: true,
   });
 
